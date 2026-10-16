@@ -15,6 +15,7 @@ const promise = {
   description: "Logo",
   invoiceRef: "INV-1",
   status: "active",
+  atRiskReason: null,
   approvalToken: "APPROVAL-TOKEN-SECRET",
   createdAt: "2026-10-16T15:00:00.000Z",
   grantAccessToken: "SECRET-access",

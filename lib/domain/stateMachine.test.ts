@@ -45,9 +45,10 @@ function seedPromise(status: PromiseStatus) {
     description: null,
     invoiceRef: null,
     status,
+    atRiskReason: null,
     approvalToken: "tok",
     createdAt: new Date().toISOString(),
-  });
+  }, "key-hash");
 }
 
 beforeEach(() => resetDbForTests());

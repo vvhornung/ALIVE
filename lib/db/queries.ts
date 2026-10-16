@@ -16,6 +16,11 @@ export type PromiseStatus =
 
 export type AllocationStatus = "pending" | "paying" | "paid" | "failed";
 
+/** D9 payment steps. */
+export type PaymentStep = "created" | "incoming_created" | "quoted" | "submitted" | "completed" | "failed";
+
+export type AtRiskReason = "simulated_revocation" | "grant_revoked" | "rotation_failed";
+
 /** A promise without any grant secret. approvalToken is server-side only. */
 export type PromiseRecord = {
   id: string;
@@ -29,6 +34,7 @@ export type PromiseRecord = {
   description: string | null;
   invoiceRef: string | null;
   status: PromiseStatus;
+  atRiskReason: AtRiskReason | null;
   approvalToken: string;
   createdAt: string;
 };
@@ -42,6 +48,24 @@ export type AllocationRecord = {
   status: AllocationStatus;
   statusToken: string;
   simulated: boolean;
+};
+
+export type PaymentRecord = {
+  id: string;
+  allocationId: string;
+  idempotencyKey: string;
+  attempt: number;
+  step: PaymentStep;
+  incomingPaymentUrl: string | null;
+  quoteUrl: string | null;
+  outgoingPaymentUrl: string | null;
+  debitValue: string | null; // payer asset (promise asset)
+  receiveValue: string | null; // recipient asset, from the quote
+  receiveAssetCode: string | null;
+  receiveAssetScale: number | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
 };
 
 export type EventRecord = {
@@ -70,17 +94,31 @@ const PROMISE_COLUMNS = `
   id, freelancer_wallet AS freelancerWallet, freelancer_name AS freelancerName,
   payer_wallet AS payerWallet, asset_code AS assetCode, asset_scale AS assetScale,
   total_value AS totalValue, due_at AS dueAt, description, invoice_ref AS invoiceRef,
-  status, approval_token AS approvalToken, created_at AS createdAt`;
+  status, at_risk_reason AS atRiskReason, approval_token AS approvalToken, created_at AS createdAt`;
 
-export function insertPromise(p: PromiseRecord): void {
+export function insertPromise(p: PromiseRecord, freelancerKeyHash: string): void {
   getDb()
     .prepare(
       `INSERT INTO promises (id, freelancer_wallet, freelancer_name, payer_wallet, asset_code, asset_scale,
-        total_value, due_at, description, invoice_ref, status, approval_token, created_at)
+        total_value, due_at, description, invoice_ref, status, at_risk_reason, approval_token, freelancer_key_hash,
+        created_at)
        VALUES (@id, @freelancerWallet, @freelancerName, @payerWallet, @assetCode, @assetScale,
-        @totalValue, @dueAt, @description, @invoiceRef, @status, @approvalToken, @createdAt)`,
+        @totalValue, @dueAt, @description, @invoiceRef, @status, @atRiskReason, @approvalToken, @freelancerKeyHash,
+        @createdAt)`,
     )
-    .run(p);
+    .run({ ...p, freelancerKeyHash });
+}
+
+/** sha256 hex of the freelancer key; never part of PromiseRecord. */
+export function getFreelancerKeyHash(promiseId: string): string | undefined {
+  const row = getDb().prepare(`SELECT freelancer_key_hash AS h FROM promises WHERE id = ?`).get(promiseId) as
+    | { h: string }
+    | undefined;
+  return row?.h;
+}
+
+export function setAtRiskReason(promiseId: string, reason: AtRiskReason | null): void {
+  getDb().prepare(`UPDATE promises SET at_risk_reason = ? WHERE id = ?`).run(reason, promiseId);
 }
 
 export function getPromiseById(id: string): PromiseRecord | undefined {
@@ -169,13 +207,6 @@ export function getAllocationByStatusToken(token: string): AllocationRecord | un
   return row && toAllocation(row);
 }
 
-export function getAllocationPromiseId(allocationId: string): string | undefined {
-  const row = getDb().prepare(`SELECT promise_id AS promiseId FROM allocations WHERE id = ?`).get(allocationId) as
-    | { promiseId: string }
-    | undefined;
-  return row?.promiseId;
-}
-
 /** Deletes the promise's allocations and inserts the new set (call inside a transaction). */
 export function replaceAllocationRows(promiseId: string, rows: AllocationRecord[]): void {
   const db = getDb();
@@ -189,23 +220,123 @@ export function replaceAllocationRows(promiseId: string, rows: AllocationRecord[
 
 // ---------- status updates (used only by lib/domain/stateMachine) ----------
 
-const STATUS_TABLES = { promise: "promises", allocation: "allocations" } as const;
+// Payments: `step` is the D9 state; `status` mirrors it.
+const STATUS_SQL = {
+  promise: {
+    update: `UPDATE promises SET status = @to WHERE id = @id AND status = @from`,
+    get: `SELECT status AS s FROM promises WHERE id = ?`,
+  },
+  allocation: {
+    update: `UPDATE allocations SET status = @to WHERE id = @id AND status = @from`,
+    get: `SELECT status AS s FROM allocations WHERE id = ?`,
+  },
+  payment: {
+    update: `UPDATE payments SET step = @to, status = @to WHERE id = @id AND step = @from`,
+    get: `SELECT step AS s FROM payments WHERE id = ?`,
+  },
+} as const;
+
+export type StatusEntity = keyof typeof STATUS_SQL;
 
 /** Compare-and-set on status. Returns true if exactly one row changed. */
-export function compareAndSetStatus(
-  entity: keyof typeof STATUS_TABLES,
-  id: string,
-  from: string,
-  to: string,
-): boolean {
-  const table = STATUS_TABLES[entity];
-  return getDb().prepare(`UPDATE ${table} SET status = ? WHERE id = ? AND status = ?`).run(to, id, from).changes === 1;
+export function compareAndSetStatus(entity: StatusEntity, id: string, from: string, to: string): boolean {
+  return getDb().prepare(STATUS_SQL[entity].update).run({ to, id, from }).changes === 1;
 }
 
-export function getStatus(entity: keyof typeof STATUS_TABLES, id: string): string | undefined {
-  const table = STATUS_TABLES[entity];
-  const row = getDb().prepare(`SELECT status FROM ${table} WHERE id = ?`).get(id) as { status: string } | undefined;
-  return row?.status;
+export function getStatus(entity: StatusEntity, id: string): string | undefined {
+  const row = getDb().prepare(STATUS_SQL[entity].get).get(id) as { s: string } | undefined;
+  return row?.s;
+}
+
+/** Promise that owns an allocation or payment (events are keyed by promise). */
+export function getOwningPromiseId(entity: StatusEntity, id: string): string | undefined {
+  if (entity === "promise") return id;
+  const sql =
+    entity === "allocation"
+      ? `SELECT promise_id AS p FROM allocations WHERE id = ?`
+      : `SELECT a.promise_id AS p FROM payments pm JOIN allocations a ON a.id = pm.allocation_id WHERE pm.id = ?`;
+  const row = getDb().prepare(sql).get(id) as { p: string } | undefined;
+  return row?.p;
+}
+
+// ---------- payments ----------
+
+const paymentColumns = (alias: string) => `
+  ${alias}.id, ${alias}.allocation_id AS allocationId, ${alias}.idempotency_key AS idempotencyKey,
+  ${alias}.attempt, ${alias}.step, ${alias}.incoming_payment_url AS incomingPaymentUrl,
+  ${alias}.quote_id AS quoteUrl, ${alias}.outgoing_payment_url AS outgoingPaymentUrl,
+  ${alias}.debit_value AS debitValue, ${alias}.receive_value AS receiveValue,
+  ${alias}.receive_asset_code AS receiveAssetCode, ${alias}.receive_asset_scale AS receiveAssetScale,
+  ${alias}.error, ${alias}.created_at AS createdAt, ${alias}.completed_at AS completedAt`;
+
+export function insertPayment(p: PaymentRecord): void {
+  getDb()
+    .prepare(
+      `INSERT INTO payments (id, allocation_id, idempotency_key, attempt, step, status, incoming_payment_url, quote_id,
+        outgoing_payment_url, debit_value, receive_value, receive_asset_code, receive_asset_scale, error, created_at,
+        completed_at)
+       VALUES (@id, @allocationId, @idempotencyKey, @attempt, @step, @step, @incomingPaymentUrl, @quoteUrl,
+        @outgoingPaymentUrl, @debitValue, @receiveValue, @receiveAssetCode, @receiveAssetScale, @error, @createdAt,
+        @completedAt)`,
+    )
+    .run(p);
+}
+
+export function getPayment(id: string): PaymentRecord | undefined {
+  return getDb().prepare(`SELECT ${paymentColumns("pm")} FROM payments pm WHERE pm.id = ?`).get(id) as
+    | PaymentRecord
+    | undefined;
+}
+
+/** The highest attempt for an allocation. */
+export function getLatestPayment(allocationId: string): PaymentRecord | undefined {
+  return getDb()
+    .prepare(`SELECT ${paymentColumns("pm")} FROM payments pm WHERE pm.allocation_id = ? ORDER BY pm.attempt DESC LIMIT 1`)
+    .get(allocationId) as PaymentRecord | undefined;
+}
+
+export function listPaymentsForPromise(promiseId: string): PaymentRecord[] {
+  return getDb()
+    .prepare(
+      `SELECT ${paymentColumns("pm")} FROM payments pm JOIN allocations a ON a.id = pm.allocation_id
+       WHERE a.promise_id = ? ORDER BY pm.created_at, pm.attempt`,
+    )
+    .all(promiseId) as PaymentRecord[];
+}
+
+export type PaymentDataFields = Pick<
+  PaymentRecord,
+  | "incomingPaymentUrl"
+  | "quoteUrl"
+  | "outgoingPaymentUrl"
+  | "debitValue"
+  | "receiveValue"
+  | "receiveAssetCode"
+  | "receiveAssetScale"
+  | "error"
+  | "completedAt"
+>;
+
+const PAYMENT_FIELD_COLUMNS: Record<keyof PaymentDataFields, string> = {
+  incomingPaymentUrl: "incoming_payment_url",
+  quoteUrl: "quote_id",
+  outgoingPaymentUrl: "outgoing_payment_url",
+  debitValue: "debit_value",
+  receiveValue: "receive_value",
+  receiveAssetCode: "receive_asset_code",
+  receiveAssetScale: "receive_asset_scale",
+  error: "error",
+  completedAt: "completed_at",
+};
+
+/** Persists data gathered by a pipeline step (the step itself changes only through transition()). */
+export function updatePaymentData(id: string, fields: Partial<PaymentDataFields>): void {
+  const keys = (Object.keys(fields) as (keyof PaymentDataFields)[]).filter((k) => k in PAYMENT_FIELD_COLUMNS);
+  if (keys.length === 0) return;
+  const assignments = keys.map((k) => `${PAYMENT_FIELD_COLUMNS[k]} = @${k}`).join(", ");
+  const params: Record<string, unknown> = { id };
+  for (const k of keys) params[k] = fields[k] ?? null;
+  getDb().prepare(`UPDATE payments SET ${assignments} WHERE id = @id`).run(params);
 }
 
 // ---------- events ----------
@@ -221,4 +352,12 @@ export function listEvents(promiseId: string): EventRecord[] {
     .prepare(`SELECT id, promise_id AS promiseId, type, payload, at FROM events WHERE promise_id = ? ORDER BY id`)
     .all(promiseId) as (Omit<EventRecord, "payload"> & { payload: string | null })[];
   return rows.map((r) => ({ ...r, payload: r.payload === null ? null : (JSON.parse(r.payload) as unknown) }));
+}
+
+/** Time of the most recent event (stale-lock detection). */
+export function getLatestEventAt(promiseId: string): string | undefined {
+  const row = getDb().prepare(`SELECT MAX(at) AS at FROM events WHERE promise_id = ?`).get(promiseId) as
+    | { at: string | null }
+    | undefined;
+  return row?.at ?? undefined;
 }

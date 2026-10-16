@@ -3,7 +3,7 @@
 // Payment transitions are defined in the payout prompt (D9 step semantics).
 import {
   compareAndSetStatus,
-  getAllocationPromiseId,
+  getOwningPromiseId,
   getStatus,
   inTransaction,
   insertEvent,
@@ -70,7 +70,7 @@ export function transition<E extends keyof Machine>(
       if (current === undefined) throw new DomainError("NOT_FOUND", `${entity} ${id} not found`);
       throw new DomainError("INVALID_STATE", `${entity} is ${current}, expected ${from}`);
     }
-    const promiseId = entity === "promise" ? id : getAllocationPromiseId(id);
+    const promiseId = getOwningPromiseId(entity, id);
     if (promiseId === undefined) throw new DomainError("NOT_FOUND", `${entity} ${id} not found`);
     insertEvent(promiseId, event.type, {
       ...event.payload,

@@ -1,11 +1,26 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import type Database from "better-sqlite3";
+import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema";
 
-// Read from the project root: Next bundles lib/ but not .sql files.
-const SCHEMA_PATH = path.join(process.cwd(), "lib", "db", "schema.sql");
+export class SchemaVersionError extends Error {
+  constructor(found: number) {
+    super(
+      `Database schema version ${found} does not match the app (${SCHEMA_VERSION}). ` +
+        "This is a hackathon prototype without migrations: delete the database file " +
+        "(PowerShell: Remove-Item .\\data -Recurse) and restart.",
+    );
+    this.name = "SchemaVersionError";
+  }
+}
 
-/** Applies schema.sql. Every statement is IF NOT EXISTS, so this is idempotent. */
+/**
+ * Applies the schema. Fresh DBs are created at SCHEMA_VERSION; a DB created by
+ * an older version fails loudly instead of running on a half-matching schema.
+ */
 export function migrate(db: Database.Database): void {
-  db.exec(readFileSync(SCHEMA_PATH, "utf8"));
+  const version = db.pragma("user_version", { simple: true }) as number;
+  const hasTables =
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'promises'").get() !== undefined;
+  if (hasTables && version !== SCHEMA_VERSION) throw new SchemaVersionError(version);
+  db.exec(SCHEMA_SQL); // every statement is IF NOT EXISTS
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

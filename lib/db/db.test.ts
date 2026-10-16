@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { getDb, resetDbForTests } from "./connection";
 import {
   compareAndSetStatus,
+  getLatestPayment,
+  insertPayment,
+  listPaymentsForPromise,
+  replaceAllocationRows,
+  updatePaymentData,
+  getStatus,
   getActiveGrant,
   getPendingGrant,
   getPromiseById,
@@ -12,7 +18,9 @@ import {
   savePendingGrant,
   type PromiseRecord,
 } from "./queries";
-import { migrate } from "./migrate";
+import Database from "better-sqlite3";
+import { migrate, SchemaVersionError } from "./migrate";
+import { SCHEMA_VERSION } from "./schema";
 
 const promise: PromiseRecord = {
   id: "p1",
@@ -26,6 +34,7 @@ const promise: PromiseRecord = {
   description: "Logo",
   invoiceRef: null,
   status: "draft",
+  atRiskReason: null,
   approvalToken: "approval-token",
   createdAt: "2026-10-16T12:00:00.000Z",
 };
@@ -38,14 +47,14 @@ describe("db", () => {
   });
 
   it("round-trips a promise without secret fields", () => {
-    insertPromise(promise);
+    insertPromise(promise, "key-hash");
     const row = getPromiseById("p1");
     expect(row).toEqual(promise);
     expect(Object.keys(row ?? {})).not.toContain("grantAccessToken");
   });
 
   it("enforces the status CHECK and FK constraints", () => {
-    expect(() => insertPromise({ ...promise, status: "bogus" as PromiseRecord["status"] })).toThrow();
+    expect(() => insertPromise({ ...promise, status: "bogus" as PromiseRecord["status"] }, "key-hash")).toThrow();
     expect(() =>
       getDb()
         .prepare(
@@ -57,7 +66,7 @@ describe("db", () => {
   });
 
   it("stores grant secrets encrypted and decrypts them on read", () => {
-    insertPromise(promise);
+    insertPromise(promise, "key-hash");
     savePendingGrant("p1", "https://ilp.interledger-test.dev/payer", {
       continueUri: "https://auth/continue/1",
       continueToken: "continue-token-plain",
@@ -77,14 +86,43 @@ describe("db", () => {
   });
 
   it("compare-and-set only changes the expected status", () => {
-    insertPromise(promise);
+    insertPromise(promise, "key-hash");
     expect(compareAndSetStatus("promise", "p1", "active", "executing")).toBe(false);
     expect(compareAndSetStatus("promise", "p1", "draft", "awaiting_approval")).toBe(true);
   });
 
   it("stores events with JSON payloads", () => {
-    insertPromise(promise);
+    insertPromise(promise, "key-hash");
     insertEvent("p1", "promise_created", { totalValue: "30000" });
     expect(listEvents("p1")).toMatchObject([{ type: "promise_created", payload: { totalValue: "30000" } }]);
+  });
+
+  it("refuses a database created by another schema version", () => {
+    const old = new Database(":memory:");
+    old.exec("CREATE TABLE promises (id TEXT PRIMARY KEY)");
+    expect(() => migrate(old)).toThrow(SchemaVersionError);
+    const fresh = new Database(":memory:");
+    migrate(fresh);
+    expect(fresh.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
+  it("stores payments, updates step data and finds the latest attempt", () => {
+    insertPromise(promise, "key-hash");
+    replaceAllocationRows("p1", [
+      { id: "a1", promiseId: "p1", label: "Rent", recipientWallet: "w", value: "100", status: "pending", statusToken: "t", simulated: false },
+    ]);
+    const base = {
+      allocationId: "a1", step: "created" as const, incomingPaymentUrl: null, quoteUrl: null, outgoingPaymentUrl: null,
+      debitValue: null, receiveValue: null, receiveAssetCode: null, receiveAssetScale: null, error: null,
+      createdAt: "2026-10-16T12:00:00.000Z", completedAt: null,
+    };
+    insertPayment({ ...base, id: "pay1", idempotencyKey: "p1:a1:1", attempt: 1 });
+    insertPayment({ ...base, id: "pay2", idempotencyKey: "p1:a1:2", attempt: 2 });
+    expect(() => insertPayment({ ...base, id: "pay3", idempotencyKey: "p1:a1:2", attempt: 3 })).toThrow();
+    updatePaymentData("pay2", { incomingPaymentUrl: "https://rs/incoming/1", debitValue: "100" });
+    expect(compareAndSetStatus("payment", "pay2", "created", "incoming_created")).toBe(true);
+    expect(getStatus("payment", "pay2")).toBe("incoming_created");
+    expect(getLatestPayment("a1")).toMatchObject({ id: "pay2", attempt: 2, step: "incoming_created", debitValue: "100" });
+    expect(listPaymentsForPromise("p1").map((p) => p.id)).toEqual(["pay1", "pay2"]);
   });
 });

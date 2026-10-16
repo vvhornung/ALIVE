@@ -18,7 +18,7 @@ import { fromDecimalString, MoneyError, parseMinor } from "@/lib/money";
 import { continueGrant, requestOutgoingGrant, resolveWallet, verifyInteractHash } from "@/lib/op";
 import { DomainError } from "./errors";
 import { transition } from "./stateMachine";
-import { newPublicToken, tokensEqual } from "./tokens";
+import { hashSecret, newPublicToken, tokensEqual } from "./tokens";
 
 export type CreatePromiseInput = {
   freelancerWallet: string;
@@ -45,7 +45,7 @@ function fallbackName(walletId: string): string {
 export async function createPromise(
   input: CreatePromiseInput,
   now: Date = new Date(),
-): Promise<{ promise: PromiseRecord; approvalToken: string }> {
+): Promise<{ promise: PromiseRecord; approvalToken: string; freelancerKey: string }> {
   const assetScale = input.assetScale ?? 2;
   if (!/^[A-Z]{3}$/.test(input.assetCode)) {
     throw new DomainError("VALIDATION_ERROR", "assetCode must be a 3-letter code like USD");
@@ -79,12 +79,16 @@ export async function createPromise(
     description: input.description?.trim() || null,
     invoiceRef: input.invoiceRef?.trim() || null,
     status: "draft",
+    atRiskReason: null,
     approvalToken: newPublicToken(),
     createdAt: now.toISOString(),
   };
 
+  // Returned once; only its sha256 is stored.
+  const freelancerKey = newPublicToken();
+
   inTransaction(() => {
-    insertPromise(promise);
+    insertPromise(promise, hashSecret(freelancerKey));
     insertEvent(promise.id, "promise_created", {
       totalValue,
       assetCode: promise.assetCode,
@@ -93,7 +97,7 @@ export async function createPromise(
     });
     transition("promise", promise.id, "draft", "awaiting_approval", { type: "approval_requested" });
   });
-  return { promise: { ...promise, status: "awaiting_approval" }, approvalToken: promise.approvalToken };
+  return { promise: { ...promise, status: "awaiting_approval" }, approvalToken: promise.approvalToken, freelancerKey };
 }
 
 /** Public lookup for the payer page. Unknown tokens are NOT_FOUND. */
