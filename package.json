@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@interledger/open-payments": "^7.4.0",
+    "better-sqlite3": "^13.0.3",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
