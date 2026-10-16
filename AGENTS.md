@@ -323,3 +323,13 @@ Timeline: Sat 08:00–11:00 is for testing the flow twice, recording the demo, R
 ## 15. Glossary
 
 **Wallet address:** URL of an account. **GNAP:** protocol for negotiating grants. **Grant:** scoped permission returning an access token. **Incoming payment / Quote / Outgoing payment:** the three payment resources. **Interactive grant:** needs user consent out of band. **Allocation:** our own database row dividing a promise; not part of Open Payments. **PILA:** Colombian social-security contribution form/payment. **Cuenta de cobro:** freelancer invoice document in Colombia.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

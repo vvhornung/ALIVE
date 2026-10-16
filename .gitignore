@@ -1,11 +1,38 @@
-node_modules/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+/build
+dist/
+
+# testing
+/coverage
+
+# secrets: never commit keys or env files
 .env
-.env.*
+.env*
 !.env.example
 *.key
 *.pem
+
+# local data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# misc
+.DS_Store
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# claude code (local only)
 .claude/settings.local.json
 .claude/worktrees/
 CLAUDE.local.md
-dist/
-.next/
