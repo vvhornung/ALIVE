@@ -5,6 +5,7 @@ const base = {
   OP_WALLET_ADDRESS_URL: "https://ilp.interledger-test.dev/alive",
   OP_KEY_ID: "key-id",
   OP_PRIVATE_KEY: "./private.key",
+  ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
 };
 
 function errorOf(source: Record<string, string | undefined>): string {
@@ -23,7 +24,7 @@ describe("parseEnv", () => {
     expect(env.opPrivateKey).toBe("./private.key");
     expect(env.appBaseUrl).toBe("http://localhost:3000");
     expect(env.strictHash).toBe(false);
-    expect(env.encryptionKey).toBeUndefined();
+    expect(env.databasePath).toBe("./data/alive.db");
   });
 
   it("normalizes a $ payment pointer to https://", () => {
@@ -32,7 +33,8 @@ describe("parseEnv", () => {
   });
 
   it("names every missing variable, treating empty strings as unset", () => {
-    const message = errorOf({ OP_WALLET_ADDRESS_URL: "", OP_KEY_ID: "", OP_PRIVATE_KEY: "" });
+    const message = errorOf({ OP_WALLET_ADDRESS_URL: "", OP_KEY_ID: "", OP_PRIVATE_KEY: "", ENCRYPTION_KEY: "" });
+    expect(message).toContain("ENCRYPTION_KEY");
     expect(message).toContain("OP_WALLET_ADDRESS_URL");
     expect(message).toContain("OP_KEY_ID");
     expect(message).toContain("OP_PRIVATE_KEY_B64");
@@ -50,7 +52,7 @@ describe("parseEnv", () => {
     );
   });
 
-  it("validates ENCRYPTION_KEY length when set", () => {
+  it("validates ENCRYPTION_KEY length", () => {
     expect(errorOf({ ...base, ENCRYPTION_KEY: "c2hvcnQ=" })).toContain("ENCRYPTION_KEY");
     const key = Buffer.alloc(32, 7).toString("base64");
     expect(parseEnv({ ...base, ENCRYPTION_KEY: key }).encryptionKey).toBe(key);

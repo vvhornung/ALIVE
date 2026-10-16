@@ -10,8 +10,8 @@ const httpsUrl = requiredString
   .transform((v) => v.trim().replace(/^\$/, "https://"))
   .pipe(z.url({ protocol: /^https$/, error: "must be an https:// wallet address" }));
 
-const encryptionKey = optionalString.refine(
-  (v) => v === undefined || Buffer.from(v, "base64").length === 32,
+const encryptionKey = requiredString.refine(
+  (v) => Buffer.from(v, "base64").length === 32,
   "must be 32 random bytes encoded as base64",
 );
 
@@ -26,6 +26,7 @@ const schema = z.object({
   ),
   ENCRYPTION_KEY: encryptionKey,
   STRICT_HASH: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["true", "false"]).default("false")),
+  DATABASE_PATH: z.preprocess((v) => (v === "" || v === undefined ? "./data/alive.db" : v), z.string()),
 });
 
 export type Env = {
@@ -34,8 +35,11 @@ export type Env = {
   /** File path or PEM text, as accepted by createAuthenticatedClient. */
   opPrivateKey: string;
   appBaseUrl: string;
-  encryptionKey: string | undefined;
+  /** 32 bytes, base64. */
+  encryptionKey: string;
   strictHash: boolean;
+  /** File path, or ":memory:" in tests. */
+  databasePath: string;
 };
 
 export class EnvError extends Error {
@@ -69,6 +73,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
     encryptionKey: e.ENCRYPTION_KEY,
     strictHash: e.STRICT_HASH === "true",
+    databasePath: e.DATABASE_PATH,
   };
 }
 
