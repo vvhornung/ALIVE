@@ -30,6 +30,35 @@ export async function getOutgoingPayment(args: { url: string; accessToken: strin
   return wrapOp("outgoing.get", () => client.outgoingPayment.get({ url: args.url, accessToken: args.accessToken }));
 }
 
+/**
+ * Finds an outgoing payment already created from `quoteUrl` (crash-safe
+ * idempotency: a quote can back at most one outgoing payment). Needs the
+ * `list` action on the grant. Scans up to `maxPages` pages of 50.
+ */
+export async function findOutgoingPaymentByQuote(args: {
+  payer: ResolvedWallet;
+  accessToken: string;
+  quoteUrl: string;
+  maxPages?: number;
+}): Promise<OutgoingPayment | undefined> {
+  const client = await getOpClient();
+  let cursor: string | undefined;
+  for (let page = 0; page < (args.maxPages ?? 5); page++) {
+    const result = await wrapOp("outgoing.list", () =>
+      client.outgoingPayment.list(
+        { url: args.payer.resourceServer, accessToken: args.accessToken, walletAddress: args.payer.id },
+        // The SDK type requires wallet-address in pagination too (it overrides it with the arg above).
+        { first: 50, "wallet-address": args.payer.id, ...(cursor ? { cursor } : {}) },
+      ),
+    );
+    const match = result.result.find((p) => p.quoteId === args.quoteUrl);
+    if (match) return match;
+    if (!result.pagination.hasNextPage || !result.pagination.endCursor) return undefined;
+    cursor = result.pagination.endCursor;
+  }
+  return undefined;
+}
+
 /** How much of the outgoing grant's limit has been used so far. */
 export async function getGrantSpentAmounts(args: {
   payer: ResolvedWallet;
