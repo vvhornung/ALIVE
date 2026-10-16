@@ -7,6 +7,7 @@ export type DomainErrorCode =
   | "ASSET_MISMATCH"
   | "PAYER_REJECTED"
   | "VALIDATION_ERROR"
+  | "GRANT_LIMIT_EXCEEDED"
   | "OP_ERROR";
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
@@ -18,6 +19,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   ASSET_MISMATCH: 422,
   PAYER_REJECTED: 400,
   VALIDATION_ERROR: 400,
+  GRANT_LIMIT_EXCEEDED: 409,
   OP_ERROR: 502,
 };
 
