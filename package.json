@@ -10,7 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "spike:s0": "tsx --env-file=.env.local scripts/s0-single-payment.ts",
-    "spike:s2": "tsx --env-file=.env.local scripts/s2-one-grant-many-payments.ts"
+    "spike:s2": "tsx --env-file=.env.local scripts/s2-one-grant-many-payments.ts",
+    "demo:setup": "tsx --env-file=.env.local scripts/demo-setup.ts"
   },
   "dependencies": {
     "@interledger/open-payments": "^7.4.0",
