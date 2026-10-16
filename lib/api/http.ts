@@ -1,9 +1,13 @@
 // Thin-route helpers: parse input with zod, run the domain call, map typed
 // errors to { error: { code, message } }. Logs carry codes and ids only.
 import type { z } from "zod";
+import { FREELANCER_KEY_HEADER } from "@/lib/domain/access";
 import { DomainError } from "@/lib/domain/errors";
 import { OpError } from "@/lib/op";
 import type { ErrorResponse } from "./types";
+
+/** The freelancer key header (never logged). */
+export const freelancerKeyOf = (request: Request): string | null => request.headers.get(FREELANCER_KEY_HEADER);
 
 export function json<T>(body: T, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });

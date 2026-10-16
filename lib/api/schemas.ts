@@ -21,6 +21,10 @@ export const authorizeSchema = z.object({
   payerWallet: walletAddress,
 });
 
+export const revokeSimSchema = z.object({
+  revoked: z.boolean(),
+});
+
 export const allocationsSchema = z.object({
   allocations: z
     .array(
