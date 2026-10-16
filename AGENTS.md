@@ -1,4 +1,4 @@
-# ALIVE — Technical Context & Agent Guide
+# ALIVE — Technical Context & Agent Guide NOT RUN (script ready) | NOT RUN (script ready) | NOT RUN (script ready) | NOT RUN | NOT RUN | NOT RUN (script ready) | NOT RUN | NOT RUN |
 
 > Tagline: *"Your invoice isn't a PDF. It's live money."*
 > Project for the Open Payments Hackathon, Ruta N, Medellín, 16–17 Oct 2026.
@@ -271,18 +271,18 @@ Transitions only through functions in `lib/domain`. Every transition appends a r
 
 ## 11. Spikes: unknowns to resolve FIRST (scripts in `/scripts`)
 
-Each spike = one small script that proves or disproves one thing against the test wallet. Report results in `docs/spikes.md`. Ask mentors (help desk / Slack) in parallel.
+Each spike = one small script that proves or disproves one thing against the test wallet. Report results in `docs/spikes.md` and keep the Status column below in sync. Ask mentors (help desk / Slack) in parallel.
 
-| # | Question | If NO, fallback |
-|---|---|---|
-| S0 | One full payment end to end (all 8 steps) works with our keys. | Nothing else matters until this works. |
-| S1 | Can an interactive outgoing grant be created **before** quotes exist, with generic limits (no fixed receiver), and then be used later? | Create grant with limits matching one pre-created quote per allocation, or run approval at payment time. |
-| S2 | Can **several outgoing payments** run under one grant/token (limits: total `debitAmount`)? | One grant per allocation, or approve at execution time. |
-| S3 | Does a **future start date / interval** work in grant limits? | Server holds the token and only executes on the due date. Demo looks identical. |
-| S4 | **USD → COP** (or other asset) conversion between test accounts? | Demo in a single asset; mention FX as next step. |
-| S5 | How long do access tokens live; can they be rotated? | Re-approval flow or short demo window. |
-| S6 | Does the payer's wallet expose revocation we can detect (grant state)? | Keep `revoke-sim` toggle, clearly labeled simulated. |
-| S7 | Can the freelancer's COP wallet receive from a USD payer in the test wallet? | Show both sides in USD, mention COP next. |
+| # | Question | If NO, fallback | Status |
+|---|---|---|---|
+| S0 | One full payment end to end (all 8 steps) works with our keys. | Nothing else matters until this works. | NOT RUN (script ready) |
+| S1 | Can an interactive outgoing grant be created **before** quotes exist, with generic limits (no fixed receiver), and then be used later? | Create grant with limits matching one pre-created quote per allocation, or run approval at payment time. | NOT RUN (script ready) |
+| S2 | Can **several outgoing payments** run under one grant/token (limits: total `debitAmount`)? | One grant per allocation, or approve at execution time. | NOT RUN (script ready) |
+| S3 | Does a **future start date / interval** work in grant limits? | Server holds the token and only executes on the due date. Demo looks identical. | NOT RUN |
+| S4 | **USD → COP** (or other asset) conversion between test accounts? | Demo in a single asset; mention FX as next step. | NOT RUN |
+| S5 | How long do access tokens live; can they be rotated? | Re-approval flow or short demo window. | NOT RUN (script ready) |
+| S6 | Does the payer's wallet expose revocation we can detect (grant state)? | Keep `revoke-sim` toggle, clearly labeled simulated. | NOT RUN |
+| S7 | Can the freelancer's COP wallet receive from a USD payer in the test wallet? | Show both sides in USD, mention COP next. | NOT RUN |
 
 ---
 

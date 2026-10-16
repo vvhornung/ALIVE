@@ -15,7 +15,7 @@ Complements `AGENTS.md`. Where this file is more specific, it wins: it fixes gap
 | D7 | **The quote grant is non-interactive** on the payer's AS (`quote` `['create','read']`), requested at execution time and not stored. | Least privilege, nothing long-lived. |
 | D8 | **Execution lock**: `UPDATE promises SET status='executing' WHERE id=? AND status='active'`. If 0 rows change, return 409. | Prevents a double click from paying twice. |
 | D9 | **Resume per step**: each payment row stores `incoming_payment_url → quote_id → outgoing_payment_url`. On retry, skip the steps already done. **Never create a 2nd outgoing payment** if `outgoing_payment_url` is set. | AGENTS §10.4 idempotency, made concrete. |
-| D10 | **Poll** `outgoingPayment.get` every 1.5 s, up to 30 s: `failed` → failed, `sentAmount.value === debitAmount.value` → completed. Then `incomingPayment.complete` (best-effort; needs the `complete` action on the incoming grant). | Gives the "completed" step the demo requires. |
+| D10 | **Poll** `outgoingPayment.get` **and** `incomingPayment.get` every 1.5 s, up to 30 s. **Completed** when `BigInt(incoming.receivedAmount.value) >= BigInt(quote.receiveAmount.value)`; **failed** when `outgoing.failed === true`; neither after 30 s → **timeout**. Then `incomingPayment.complete` (best-effort; needs the `complete` action on the incoming grant). _Pending confirmation in spike S0_ (the spikes print sentAmount, debitAmount, receiveAmount and receivedAmount on every attempt). | Gives the "completed" step the demo requires. Comparing `sentAmount` with `debitAmount` is unreliable with fixed-debit quotes if the wallet charges sending fees. |
 | D11 | **Next.js specifics**: route handlers `export const runtime = 'nodejs'`; `next.config` `serverExternalPackages: ['better-sqlite3', '@interledger/open-payments']`; the OP client and the DB are **singletons on `globalThis`** (survives hot reload); route `params` are async (`await params`). | Most common source of lost hours with Next + native/Node-only libs. |
 | D12 | **Private key from env**: `OP_PRIVATE_KEY` accepts a file path, a PEM string, or base64 (`OP_PRIVATE_KEY_B64`). | Local path for dev, base64 for any host. |
 | D13 | **SQLite**: `better-sqlite3`. If the native install fails on Windows, fall back to Node's built-in `node:sqlite` (Node 24 has it) behind the same `lib/db` interface. | Removes a Windows build risk. |
@@ -30,6 +30,9 @@ lib/domain/             business rules + state machines; the only writer of stat
   payout.ts             executePromise → runAllocation (resumable pipeline, D8–D10)
   errors.ts             DomainError(code, httpStatus, message)
 lib/op/                 the ONLY place that imports @interledger/open-payments
+  index.ts              barrel with `import 'server-only'`. **The app imports ONLY from '@/lib/op'.**
+                        The other lib/op files have no guard so spike scripts (plain Node via tsx)
+                        import the concrete files (e.g. '../lib/op/grants'). Never import the barrel from scripts.
   client.ts             singleton createAuthenticatedClient (D11, D12)
   wallet.ts             resolveWallet(url): normalizes $ → https://, returns {id, assetCode, assetScale, authServer, resourceServer}
   grants.ts             requestOutgoingGrant, continueGrant, requestIncomingGrant, requestQuoteGrant, rotateToken, verifyInteractHash
