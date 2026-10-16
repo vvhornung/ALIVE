@@ -7,13 +7,21 @@ import {
   getPromiseById,
   listAllocations,
   type AllocationStatus,
+  type PaymentStep,
   type PromiseStatus,
 } from "@/lib/db";
 import { DomainError } from "./errors";
-import { ALLOCATION_TRANSITIONS, canTransition, PROMISE_TRANSITIONS, transition } from "./stateMachine";
+import {
+  ALLOCATION_TRANSITIONS,
+  canTransition,
+  PAYMENT_TRANSITIONS,
+  PROMISE_TRANSITIONS,
+  transition,
+} from "./stateMachine";
 
 const PROMISE_STATUSES = Object.keys(PROMISE_TRANSITIONS) as PromiseStatus[];
 const ALLOCATION_STATUSES = Object.keys(ALLOCATION_TRANSITIONS) as AllocationStatus[];
+const PAYMENT_STEPS = Object.keys(PAYMENT_TRANSITIONS) as PaymentStep[];
 
 const LEGAL_PROMISE: [PromiseStatus, PromiseStatus][] = [
   ["draft", "awaiting_approval"],
@@ -25,11 +33,24 @@ const LEGAL_PROMISE: [PromiseStatus, PromiseStatus][] = [
   ["executing", "completed"],
   ["executing", "partially_failed"],
   ["executing", "at_risk"],
+  ["partially_failed", "executing"], // retry
+  ["at_risk", "active"], // revoke-sim cleared / re-approved
 ];
 const LEGAL_ALLOCATION: [AllocationStatus, AllocationStatus][] = [
   ["pending", "paying"],
   ["paying", "paid"],
   ["paying", "failed"],
+  ["failed", "paying"], // retry
+];
+const LEGAL_PAYMENT: [PaymentStep, PaymentStep][] = [
+  ["created", "incoming_created"],
+  ["incoming_created", "quoted"],
+  ["quoted", "submitted"],
+  ["submitted", "completed"],
+  ["created", "failed"],
+  ["incoming_created", "failed"],
+  ["quoted", "failed"],
+  ["submitted", "failed"],
 ];
 
 function seedPromise(status: PromiseStatus) {
@@ -54,7 +75,7 @@ function seedPromise(status: PromiseStatus) {
 beforeEach(() => resetDbForTests());
 
 describe("transition tables", () => {
-  it("promise: exactly the AGENTS §9 moves are legal", () => {
+  it("promise: exactly the AGENTS §9 moves (+ retries) are legal", () => {
     for (const from of PROMISE_STATUSES) {
       for (const to of PROMISE_STATUSES) {
         const legal = LEGAL_PROMISE.some(([f, t]) => f === from && t === to);
@@ -63,7 +84,16 @@ describe("transition tables", () => {
     }
   });
 
-  it("allocation: exactly the AGENTS §9 moves are legal", () => {
+  it("payment: exactly the D9 steps are legal (no step back)", () => {
+    for (const from of PAYMENT_STEPS) {
+      for (const to of PAYMENT_STEPS) {
+        const legal = LEGAL_PAYMENT.some(([f, t]) => f === from && t === to);
+        expect(canTransition("payment", from, to), `${from} → ${to}`).toBe(legal);
+      }
+    }
+  });
+
+  it("allocation: exactly the AGENTS §9 moves (+ retry) are legal", () => {
     for (const from of ALLOCATION_STATUSES) {
       for (const to of ALLOCATION_STATUSES) {
         const legal = LEGAL_ALLOCATION.some(([f, t]) => f === from && t === to);

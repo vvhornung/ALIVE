@@ -1,6 +1,5 @@
-// Explicit transition tables (AGENTS §9). Statuses change ONLY through
-// transition(), which appends an events row in the same DB transaction.
-// Payment transitions are defined in the payout prompt (D9 step semantics).
+// Explicit transition tables (AGENTS §9, ARCHITECTURE D9). Statuses change ONLY
+// through transition(), which appends an events row in the same DB transaction.
 import {
   compareAndSetStatus,
   getOwningPromiseId,
@@ -8,6 +7,7 @@ import {
   inTransaction,
   insertEvent,
   type AllocationStatus,
+  type PaymentStep,
   type PromiseStatus,
 } from "@/lib/db";
 import { DomainError } from "./errors";
@@ -18,8 +18,8 @@ export const PROMISE_TRANSITIONS: Readonly<Record<PromiseStatus, readonly Promis
   active: ["executing", "at_risk", "expired"],
   executing: ["completed", "partially_failed", "at_risk"],
   completed: [],
-  partially_failed: [],
-  at_risk: [],
+  partially_failed: ["executing"], // retry
+  at_risk: ["active"], // revoke-sim cleared, or payer re-approved
   expired: [],
 };
 
@@ -27,24 +27,32 @@ export const ALLOCATION_TRANSITIONS: Readonly<Record<AllocationStatus, readonly 
   pending: ["paying"],
   paying: ["paid", "failed"],
   paid: [],
+  failed: ["paying"], // retry
+};
+
+/** D9: one row per attempt; a retry is a NEW payment row, never a step back. */
+export const PAYMENT_TRANSITIONS: Readonly<Record<PaymentStep, readonly PaymentStep[]>> = {
+  created: ["incoming_created", "failed"],
+  incoming_created: ["quoted", "failed"],
+  quoted: ["submitted", "failed"],
+  submitted: ["completed", "failed"],
+  completed: [],
   failed: [],
 };
 
 type Machine = {
-  promise: { status: PromiseStatus };
-  allocation: { status: AllocationStatus };
+  promise: PromiseStatus;
+  allocation: AllocationStatus;
+  payment: PaymentStep;
 };
 
-const TABLES: { [E in keyof Machine]: Readonly<Record<Machine[E]["status"], readonly Machine[E]["status"][]>> } = {
+const TABLES: { [E in keyof Machine]: Readonly<Record<Machine[E], readonly Machine[E][]>> } = {
   promise: PROMISE_TRANSITIONS,
   allocation: ALLOCATION_TRANSITIONS,
+  payment: PAYMENT_TRANSITIONS,
 };
 
-export function canTransition<E extends keyof Machine>(
-  entity: E,
-  from: Machine[E]["status"],
-  to: Machine[E]["status"],
-): boolean {
+export function canTransition<E extends keyof Machine>(entity: E, from: Machine[E], to: Machine[E]): boolean {
   const table = TABLES[entity] as Readonly<Record<string, readonly string[]>>;
   return table[from]?.includes(to) ?? false;
 }
@@ -57,8 +65,8 @@ export function canTransition<E extends keyof Machine>(
 export function transition<E extends keyof Machine>(
   entity: E,
   id: string,
-  from: Machine[E]["status"],
-  to: Machine[E]["status"],
+  from: Machine[E],
+  to: Machine[E],
   event: { type: string; payload?: Record<string, unknown> },
 ): void {
   if (!canTransition(entity, from, to)) {
@@ -75,6 +83,7 @@ export function transition<E extends keyof Machine>(
     insertEvent(promiseId, event.type, {
       ...event.payload,
       ...(entity === "allocation" ? { allocationId: id } : {}),
+      ...(entity === "payment" ? { paymentId: id } : {}),
       from,
       to,
     });
