@@ -2,6 +2,7 @@
 // Invariant: SUM(allocations.value) <= promises.total_value, checked with BigInt.
 import { randomUUID } from "node:crypto";
 import {
+  getAllocationByStatusToken,
   getPromiseById,
   getStatus,
   inTransaction,
@@ -9,6 +10,7 @@ import {
   listAllocations,
   replaceAllocationRows,
   type AllocationRecord,
+  type PromiseRecord,
   type PromiseStatus,
 } from "@/lib/db";
 import { fromDecimalString, MoneyError, parseMinor } from "@/lib/money";
@@ -90,6 +92,17 @@ export async function replaceAllocations(promiseId: string, items: AllocationInp
     });
   });
   return listAllocations(promise.id);
+}
+
+/** Public status page: one allocation and its promise, by unguessable token. */
+export function getAllocationByStatusTokenOrThrow(statusToken: string): {
+  allocation: AllocationRecord;
+  promise: PromiseRecord;
+} {
+  const allocation = getAllocationByStatusToken(statusToken);
+  const promise = allocation && getPromiseById(allocation.promiseId);
+  if (!allocation || !promise) throw new DomainError("NOT_FOUND", "Status link not found");
+  return { allocation, promise };
 }
 
 export function getAllocations(promiseId: string): AllocationRecord[] {
