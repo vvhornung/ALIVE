@@ -20,6 +20,10 @@ Complements `AGENTS.md`. Where this file is more specific, it wins: it fixes gap
 | D12 | **Private key from env**: `OP_PRIVATE_KEY` accepts a file path, a PEM string, or base64 (`OP_PRIVATE_KEY_B64`). | Local path for dev, base64 for any host. |
 | D13 | **SQLite**: `better-sqlite3`. If the native install fails on Windows, fall back to Node's built-in `node:sqlite` (Node 24 has it) behind the same `lib/db` interface. | Removes a Windows build risk. |
 
+> **Payment state machine: deferred to the payout prompt.** AGENTS §9 lists `created → quoted → authorized → submitted → completed | failed`, but with one grant per promise (D1) there is no per-payment "authorized" step. That conflicts with the D9 `step` column (`created|incoming_created|quoted|submitted|completed|failed`). The `payments` table exists in the schema, but its transitions will be defined in the payout prompt using the D9 step semantics. `lib/domain/stateMachine.ts` covers only promises and allocations for now.
+>
+> **Dates:** `dueAt` is a Bogotá calendar date (`America/Bogota`, UTC-5) and is compared with `todayInBogota()` from `lib/dates.ts`, never with the UTC date.
+
 ## 2. Layers
 
 ```
@@ -37,7 +41,8 @@ lib/op/                 the ONLY place that imports @interledger/open-payments
   wallet.ts             resolveWallet(url): normalizes $ → https://, returns {id, assetCode, assetScale, authServer, resourceServer}
   grants.ts             requestOutgoingGrant, continueGrant, requestIncomingGrant, requestQuoteGrant, rotateToken, verifyInteractHash
   incoming.ts / quote.ts / outgoing.ts   one function per call + wrapOpError → OpError
-lib/db/                 schema.sql, migrate.ts, queries.ts (typed; no SQL outside this folder)
+lib/db/                 schema.sql, migrate.ts, connection.ts, queries.ts (typed; no SQL outside this folder;
+                        grant_* columns are encrypted inside queries.ts; normal row readers never select them)
 lib/crypto.ts           AES-256-GCM encrypt/decrypt for stored tokens (ENCRYPTION_KEY = 32 bytes base64)
 lib/money.ts            parse/format/sum with BigInt; toDisplay(value, scale); never floats
 lib/env.ts              zod-validated env, fails fast at boot
