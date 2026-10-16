@@ -9,8 +9,10 @@ import {
   inTransaction,
   insertEvent,
   insertPromise,
+  listAllocations,
   saveActiveGrant,
   savePendingGrant,
+  setAtRiskReason,
   type PromiseRecord,
 } from "@/lib/db";
 import { getEnv } from "@/lib/env";
@@ -120,11 +122,15 @@ export async function startAuthorization(
   if (!tokensEqual(promise.approvalToken, approvalToken)) {
     throw new DomainError("INVALID_APPROVAL_TOKEN", "Approval link not found");
   }
-  if (promise.status !== "awaiting_approval") {
+  const reapproval = isReapprovable(promise);
+  if (promise.status !== "awaiting_approval" && !reapproval) {
     throw new DomainError("INVALID_STATE", `Promise is ${promise.status}; it can no longer be approved`);
   }
 
   const payer = await resolveWallet(payerWalletUrl);
+  if (reapproval && promise.payerWallet && payer.id !== promise.payerWallet) {
+    throw new DomainError("VALIDATION_ERROR", "Re-approval must come from the same payer wallet");
+  }
   if (payer.assetCode !== promise.assetCode || payer.assetScale !== promise.assetScale) {
     throw new DomainError(
       "ASSET_MISMATCH",
@@ -133,15 +139,20 @@ export async function startAuthorization(
     );
   }
 
+  // A re-approval only needs to cover what has not been paid yet (least privilege).
+  const limitValue = reapproval ? unpaidValue(promise).toString() : promise.totalValue;
   const pending = await requestOutgoingGrant({
     payer,
-    debitAmount: { value: promise.totalValue, assetCode: promise.assetCode, assetScale: promise.assetScale },
+    debitAmount: { value: limitValue, assetCode: promise.assetCode, assetScale: promise.assetScale },
     finishUri: `${getEnv().appBaseUrl}/api/grants/callback/${promise.id}`,
   });
 
   inTransaction(() => {
     savePendingGrant(promise.id, payer.id, pending);
-    insertEvent(promise.id, "authorization_started", { payerWallet: payer.id });
+    insertEvent(promise.id, reapproval ? "reapproval_started" : "authorization_started", {
+      payerWallet: payer.id,
+      limitValue,
+    });
   });
   return { redirectUrl: pending.redirectUrl };
 }
@@ -157,7 +168,8 @@ export async function completeAuthorization(
 ): Promise<PromiseRecord> {
   const promise = getPromiseOrThrow(promiseId);
   if (promise.status === "active") return promise; // repeated callback; interact_ref is single-use
-  if (promise.status !== "awaiting_approval") {
+  const reapproval = isReapprovable(promise);
+  if (promise.status !== "awaiting_approval" && !reapproval) {
     throw new DomainError("INVALID_STATE", `Promise is ${promise.status}`);
   }
   const pending = getPendingGrant(promise.id);
@@ -189,19 +201,35 @@ export async function completeAuthorization(
 
   inTransaction(() => {
     saveActiveGrant(promise.id, { accessToken: grant.accessToken, manageUri: grant.manageUri });
-    transition("promise", promise.id, "awaiting_approval", "active", {
-      type: "payer_approved",
+    transition("promise", promise.id, reapproval ? "at_risk" : "awaiting_approval", "active", {
+      type: reapproval ? "reapproved" : "payer_approved",
       payload: { payerWallet: promise.payerWallet, hashVerified: hashOk },
     });
+    if (reapproval) setAtRiskReason(promise.id, null);
   });
   return { ...promise, status: "active" };
 }
 
-/** Callback without interact_ref: the payer declined. Status stays awaiting_approval. */
+/** Callback without interact_ref: the payer declined. Status does not change. */
 export function rejectAuthorization(promiseId: string): PromiseRecord {
   const promise = getPromiseOrThrow(promiseId);
-  if (promise.status === "awaiting_approval") {
+  if (promise.status === "awaiting_approval" || isReapprovable(promise)) {
     insertEvent(promise.id, "payer_rejected", { payerWallet: promise.payerWallet });
   }
   return promise;
+}
+
+/** at_risk because of a REAL grant problem; simulated revocations go through revoke-sim. */
+function isReapprovable(promise: PromiseRecord): boolean {
+  return (
+    promise.status === "at_risk" &&
+    (promise.atRiskReason === "grant_revoked" || promise.atRiskReason === "rotation_failed")
+  );
+}
+
+function unpaidValue(promise: PromiseRecord): bigint {
+  const paid = listAllocations(promise.id)
+    .filter((a) => a.status === "paid")
+    .reduce((acc, a) => acc + parseMinor(a.value), 0n);
+  return parseMinor(promise.totalValue) - paid;
 }
