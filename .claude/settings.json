@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsc *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "WebFetch(domain:openpayments.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:interledger.org)",
+      "WebFetch(domain:webmonetization.org)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Read(./**/private.key)",
+      "Read(./**/*.key)"
+    ]
+  }
+}
