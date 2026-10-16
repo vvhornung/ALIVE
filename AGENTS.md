@@ -112,7 +112,7 @@ Standard peer-to-peer flow (8 steps; each step is its own resource):
   /api/...           route handlers (see §8)
 /lib
   /op                Open Payments wrapper: client.ts, wallet.ts, grants.ts, incoming.ts, quote.ts, outgoing.ts
-  /db                schema.sql, queries.ts (better-sqlite3)
+  /db                schema.ts, queries.ts (better-sqlite3)
   /domain            promises.ts, allocations.ts, payout.ts (business rules, no HTTP)
   /money.ts          amount helpers (integer strings + assetScale, never floats)
   /env.ts            validated env access (zod)
@@ -283,6 +283,8 @@ Each spike = one small script that proves or disproves one thing against the tes
 | S5 | How long do access tokens live; can they be rotated? | Re-approval flow or short demo window. | NOT RUN (script ready) |
 | S6 | Does the payer's wallet expose revocation we can detect (grant state)? | Keep `revoke-sim` toggle, clearly labeled simulated. | NOT RUN |
 | S7 | Can the freelancer's COP wallet receive from a USD payer in the test wallet? | Show both sides in USD, mention COP next. | NOT RUN |
+| S8 | Can an **expired** access token (>10 min after approval) still be rotated? | Ask the payer to (re-)approve close to payment day; the app already offers re-approval from `at_risk`. | NOT RUN |
+| S9 | Does a **failed** outgoing payment consume the grant's `debitAmount` limit (`getGrantSpentAmounts`)? | Retries fail with `GRANT_LIMIT_EXCEEDED`; the payer re-approves for the remaining amount. | NOT RUN |
 
 ---
 

@@ -12,6 +12,8 @@ Cada spike prueba una incógnita contra la Interledger Test Wallet (AGENTS.md §
 | S5: vida del token y rotación | NOT RUN | | `npm run spike:s2`. Rota a los 15 s, imprime `expires_in` y comprueba que el token viejo deje de servir. |
 | S6: revocación detectable | NOT RUN | | Sin script. Fallback: toggle `revoke-sim`. |
 | S7: wallet COP recibe de pagador USD | NOT RUN | | Sin script. Mismo método que S4. |
+| S8: rotar un token expirado (>10 min después de aprobar) | NOT RUN | | Manual: aprobar con `demo:setup`, esperar 11 min y llamar a execute. PASS si los pagos salen; FAIL si la promesa queda `at_risk` (`rotation_failed` o `grant_revoked`). Si falla: aprobar cerca del día de pago, o usar la re-aprobación. |
+| S9: ¿un outgoing fallido consume el límite del grant? | NOT RUN | | Mirar `getGrantSpentAmounts` (`spentDebitAmount`) después de un pago fallido. Si lo consume, el reintento falla con `GRANT_LIMIT_EXCEEDED` y el pagador re-aprueba por el monto pendiente. |
 
 ## Qué observar al correrlos
 
@@ -36,3 +38,4 @@ Revisado contra `node_modules/@interledger/open-payments/dist/**/*.d.ts` antes d
 | `outgoingPayment.create` | `{walletAddress, quoteId, metadata?}` | **Además** acepta `{walletAddress, incomingPayment, debitAmount, metadata?}` sin quote | Diferencia: no la usamos (queremos mostrar la quote), pero sirve de plan B si las quotes dan problemas |
 | `outgoingPayment.getGrantSpentAmounts` | Mencionado | `{url: resourceServer, accessToken}` → `{spentDebitAmount \| null, spentReceiveAmount \| null}` | Usado en S2 |
 | Módulo | Docs decían `"type":"module"` | El SDK es CommonJS; el proyecto no usa `"type":"module"` | Los scripts van envueltos en `async function main()` (docs actualizados) |
+| `outgoingPayment.list` | No documentado aquí | `list({url: resourceServer, accessToken, walletAddress}, pagination)`; el tipo `PaginationArgs` **exige** `"wallet-address"` aunque el SDK lo reemplaza con el argumento | `findOutgoingPaymentByQuote` lo pasa en los dos lugares; requiere la acción `list` del grant (D1 la incluye) |
